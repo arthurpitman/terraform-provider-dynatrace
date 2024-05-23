@@ -20,6 +20,7 @@ package jsondashboardsbase
 import (
 	"github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/api"
 	"github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/settings"
+	"github.com/dynatrace-oss/terraform-provider-dynatrace/stubs"
 
 	dashboardsbase "github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/api/v1/config/dashboardsbase/settings"
 )
@@ -39,12 +40,19 @@ type service struct {
 }
 
 func (me *service) List() (api.Stubs, error) {
-	stubs, err := me.service.List()
+	var st api.Stubs
+	var err error
+	if stubs.ShouldLoadStubs() {
+		st, err = stubs.LoadStubs("dashboard")
+	} else {
+		st, err = me.service.List()
+	}
+
 	if err != nil {
-		return stubs, err
+		return st, err
 	}
 	var filteredStubs api.Stubs
-	for _, stub := range stubs {
+	for _, stub := range st {
 		if stub.Name != "Config owned by " {
 			filteredStubs = append(filteredStubs, stub)
 		}

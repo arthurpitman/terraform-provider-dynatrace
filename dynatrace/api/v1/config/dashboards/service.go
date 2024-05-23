@@ -41,7 +41,9 @@ func (me *service) NoCache() bool {
 }
 
 func (me *service) List() (api.Stubs, error) {
-	return me.service.List()
+	stubs, err := me.service.List()
+
+	return stubs, err
 }
 
 func (me *service) Get(id string, v *dashboards.Dashboard) error {

@@ -28,6 +28,7 @@ import (
 	"github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/settings"
 	"github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/settings/services/cache"
 	"github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/settings/services/httpcache"
+	"github.com/dynatrace-oss/terraform-provider-dynatrace/stubs"
 
 	dashboards "github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/api/v1/config/dashboards/settings"
 	sharing "github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/api/v1/config/dashboards/sharing/settings"
@@ -61,47 +62,72 @@ type DashbordMeta struct {
 func (me *service) Get(id string, v *sharing.DashboardSharing) error {
 	id = strings.TrimSuffix(id, "-sharing")
 
-	var dbm DashbordMeta
-	if err := me.client.Get(fmt.Sprintf("/api/config/v1/dashboards/%s", url.PathEscape(id)), 200).Finish(&dbm); err != nil {
-		return err
-	}
+	if stubs.ShouldLoadStubs() {
 
-	if err := me.client.Get(fmt.Sprintf("/api/config/v1/dashboards/%s/shareSettings", url.PathEscape(id)), 200).Finish(v); err != nil {
-		return err
-	}
-
-	v.Muted = dbm.DashboardMetaData.Preset
-
-	var dashboardName string
-	var stubs api.Stubs
-	var err error
-
-	if noValuesLister, ok := me.dashboardService.(NoValuesLister[*dashboards.Dashboard]); ok {
-		if stubs, err = noValuesLister.ListNoValues(); err != nil {
+		err := stubs.LoadStubsValue("dashboard-share-settings", id, v)
+		if err != nil {
 			return err
 		}
+
+		// get additional metadata from the associated dashboard stub
+		dashboardMetadata := struct {
+			Name              string `json:"name"`
+			DashboardMetaData struct {
+				Preset bool `json:"preset"`
+			} `json:"dashboardMetadata"`
+		}{}
+
+		err = stubs.LoadStubsValue("dashboard", id, &dashboardMetadata)
+		if err != nil {
+			return err
+		}
+
+		v.DashboardName = dashboardMetadata.Name
+		v.Muted = dashboardMetadata.DashboardMetaData.Preset
+		return nil
 	} else {
-		if stubs, err = me.dashboardService.List(); err != nil {
+
+		var dbm DashbordMeta
+		if err := me.client.Get(fmt.Sprintf("/api/config/v1/dashboards/%s", url.PathEscape(id)), 200).Finish(&dbm); err != nil {
 			return err
 		}
-	}
-	for _, stub := range stubs {
 
-		if stub.ID == id {
-			dashboardName = stub.Name
-			break
-		}
-	}
-	if len(dashboardName) == 0 || dashboardName == id {
-		dashboard := dashboards.JSONDashboard{}
-		if err := me.dashboardService.Get(id, &dashboard); err != nil {
+		if err := me.client.Get(fmt.Sprintf("/api/config/v1/dashboards/%s/shareSettings", url.PathEscape(id)), 200).Finish(v); err != nil {
 			return err
 		}
-		dashboardName = dashboard.Name()
-	}
 
-	v.DashboardName = dashboardName
-	return nil
+		v.Muted = dbm.DashboardMetaData.Preset
+
+		var dashboardName string
+		var st api.Stubs
+		var err error
+
+		if noValuesLister, ok := me.dashboardService.(NoValuesLister[*dashboards.Dashboard]); ok {
+			if st, err = noValuesLister.ListNoValues(); err != nil {
+				return err
+			}
+		} else {
+			if st, err = me.dashboardService.List(); err != nil {
+				return err
+			}
+		}
+		for _, stub := range st {
+			if stub.ID == id {
+				dashboardName = stub.Name
+				break
+			}
+		}
+		if len(dashboardName) == 0 || dashboardName == id {
+			dashboard := dashboards.JSONDashboard{}
+			if err := me.dashboardService.Get(id, &dashboard); err != nil {
+				return err
+			}
+			dashboardName = dashboard.Name()
+		}
+
+		v.DashboardName = dashboardName
+		return nil
+	}
 }
 
 func (me *service) Validate(v *sharing.DashboardSharing) error {
@@ -174,12 +200,18 @@ func (me *service) Create(v *sharing.DashboardSharing) (*api.Stub, error) {
 
 func (me *service) List() (api.Stubs, error) {
 	var err error
+	var st api.Stubs
 
-	var stubs api.Stubs
-	if stubs, err = me.dashboardService.List(); err != nil {
+	if stubs.ShouldLoadStubs() {
+		st, err = stubs.LoadStubs("dashboard-share-settings")
+	} else {
+		st, err = me.dashboardService.List()
+	}
+
+	if err != nil {
 		return nil, err
 	}
-	return stubs.ToStubs(), nil
+	return st.ToStubs(), nil
 }
 
 func (me *service) SchemaID() string {

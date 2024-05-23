@@ -18,6 +18,7 @@
 package jsondashboards
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/api"
 	"github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/rest"
 	"github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/settings"
+	"github.com/dynatrace-oss/terraform-provider-dynatrace/stubs"
 
 	dashboards "github.com/dynatrace-oss/terraform-provider-dynatrace/dynatrace/api/v1/config/dashboards/settings"
 )
@@ -143,12 +145,20 @@ type service struct {
 }
 
 func (me *service) List() (api.Stubs, error) {
-	stubs, err := me.service.List()
+
+	var st api.Stubs
+	var err error
+	if stubs.ShouldLoadStubs() {
+		st, err = stubs.LoadStubs("dashboard")
+	} else {
+		st, err = me.service.List()
+	}
+
 	if err != nil {
-		return stubs, err
+		return st, err
 	}
 	var filteredStubs api.Stubs
-	for _, stub := range stubs {
+	for _, stub := range st {
 		if stub.Name != "Config owned by " {
 			filteredStubs = append(filteredStubs, stub)
 		}
@@ -157,9 +167,29 @@ func (me *service) List() (api.Stubs, error) {
 }
 
 func (me *service) Get(id string, v *dashboards.JSONDashboard) error {
-	if err := me.service.Get(id, v); err != nil {
-		return err
+	if stubs.ShouldLoadStubs() {
+		data := map[string]interface{}{}
+		err := stubs.LoadStubsValue("dashboard", id, &data)
+		if err != nil {
+			return err
+		}
+
+		bytes, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+
+		err = v.UnmarshalJSON(bytes)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := me.service.Get(id, v)
+		if err != nil {
+			return err
+		}
 	}
+
 	v.DeNull()
 	return nil
 }
